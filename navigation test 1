@@ -1,0 +1,121 @@
+class IVRNode:
+    def __init__(self, option, action=None, parent=None):
+        self.option = option  # The IVR option (e.g., "Press 1 for Claims")
+        self.action = action  # The action taken to reach this node
+        self.children = []    # Child nodes representing subsequent options
+        self.parent = parent  # Parent node
+        self.is_terminal = False  # Whether this leads to a human agent
+        self.visited = False  # To track exploration status
+
+    def add_child(self, child):
+        self.children.append(child)
+
+
+class IVRTree:
+    def __init__(self):
+        self.root = IVRNode(option="Start")
+        self.current_node = self.root
+        self.shortest_path = []  # Optimized path to a human agent
+
+    def explore_option(self, option, action):
+        # Add a new node to the tree for the explored option
+        new_node = IVRNode(option=option, action=action, parent=self.current_node)
+        self.current_node.add_child(new_node)
+        self.current_node = new_node
+
+    def mark_terminal(self):
+        # Mark the current node as leading to a human agent
+        self.current_node.is_terminal = True
+
+    def backtrack(self):
+        # Automatically backtrack to an unvisited node
+        while self.current_node.parent:
+            self.current_node = self.current_node.parent
+            for child in self.current_node.children:
+                if not child.visited:
+                    self.current_node = child
+                    return
+        # If no unvisited nodes are found, stay at the root
+        self.current_node = self.root
+
+    def find_shortest_path(self):
+        # Perform BFS to find the shortest path to a terminal node
+        from collections import deque
+
+        queue = deque([(self.root, [])])  # (current node, path to node)
+        while queue:
+            node, path = queue.popleft()
+
+            # If terminal node found, return the path
+            if node.is_terminal:
+                self.shortest_path = path + [node.action]
+                return self.shortest_path
+
+            # Add children to the queue
+            for child in node.children:
+                queue.append((child, path + [node.action]))
+
+        return None  # No terminal node found
+
+    def print_tree(self, node=None, level=0):
+        # Debugging: Print the entire tree
+        if node is None:
+            node = self.root
+        print("  " * level + f"{node.option} (Action: {node.action}, Terminal: {node.is_terminal})")
+        for child in node.children:
+            self.print_tree(child, level + 1)
+
+    def follow_shortest_path(self):
+        # Follow the stored shortest path for optimized navigation
+        if not self.shortest_path:
+            print("No stored procedure. Rebuild the tree.")
+            return False
+
+        print("Following the shortest path:")
+        for action in self.shortest_path:
+            print(f"Executing action: {action}")
+        return True
+
+
+# Simulation Code
+def ivr_simulation():
+    ivr_tree = IVRTree()
+
+    print("Start exploring the IVR system to reach a human agent.")
+    while True:
+        print(f"\nCurrent Node: {ivr_tree.current_node.option}")
+        command = input("Enter IVR response (e.g., 'Press 1 for Claims', 'Human Agent', 'Done'): ").strip()
+
+        if command.lower() == "done":
+            print("Tree Exploration Complete. Finding shortest path...")
+            shortest_path = ivr_tree.find_shortest_path()
+            if shortest_path:
+                print("Shortest Path to Human Agent:", shortest_path)
+            else:
+                print("No path to human agent found.")
+            break
+
+        elif command.lower() == "human agent":
+            ivr_tree.mark_terminal()
+            print("Marked this node as leading to a human agent.")
+
+        else:
+            # Simulate receiving options from the IVR
+            if ":" in command:
+                option, action = command.split(":", 1)
+                ivr_tree.explore_option(option.strip(), action.strip())
+                ivr_tree.current_node.visited = True
+            else:
+                print("Invalid input. Use 'Option:Action' format.")
+
+    # Debugging: Print the entire tree
+    print("\nGenerated IVR Tree:")
+    ivr_tree.print_tree()
+
+    # Follow the shortest path if stored
+    if not ivr_tree.follow_shortest_path():
+        print("Rebuild the tree for the next session.")
+
+
+if __name__ == "__main__":
+    ivr_simulation()

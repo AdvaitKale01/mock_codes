@@ -1,0 +1,110 @@
+class IVRNode:
+    def __init__(self, option, action=None, parent=None):
+        self.option = option  # IVR option (e.g., "Press 1 for Sales")
+        self.action = action  # Action taken (e.g., "1")
+        self.children = []    # List of child nodes
+        self.parent = parent  # Reference to parent node
+        self.is_terminal = False  # Indicates if this node leads to a human agent
+
+    def add_child(self, child):
+        self.children.append(child)
+
+
+class IVRTree:
+    def __init__(self, root_option="Start"):
+        self.root = IVRNode(option=root_option)  # Root of the tree
+        self.current_node = self.root  # Pointer to the current node
+        self.shortest_path = []  # Stores the optimal path to a human agent
+
+    def find_shortest_path(self):
+        """Use BFS to find the shortest path to a terminal node."""
+        from collections import deque
+
+        queue = deque([(self.root, [])])  # (current node, path to node)
+        while queue:
+            node, path = queue.popleft()
+
+            if node.is_terminal:
+                self.shortest_path = path + [node.action]
+                return self.shortest_path
+
+            for child in node.children:
+                queue.append((child, path + [child.action]))
+
+        print("No path to a human agent found.")
+        return None
+
+    def print_tree(self, node=None, level=0):
+        """Print the tree for debugging purposes."""
+        if node is None:
+            node = self.root
+        print("  " * level + f"{node.option} (Action: {node.action}, Terminal: {node.is_terminal})")
+        for child in node.children:
+            self.print_tree(child, level + 1)
+
+    def follow_shortest_path(self):
+        """Follow the stored shortest path for optimized navigation."""
+        if not self.shortest_path:
+            print("No stored procedure. Rebuild the tree.")
+            return False
+
+        print("Following the shortest path:")
+        for action in self.shortest_path:
+            print(f"Executing action: {action}")
+        return True
+
+
+def ivr_simulation(ivr_tree):
+    print("Simulating the IVR system to reach a human agent.")
+
+    # Debugging: Print the entire tree
+    print("\nGenerated IVR Tree:")
+    ivr_tree.print_tree()
+
+    print("\nFinding shortest path to human agent...")
+    shortest_path = ivr_tree.find_shortest_path()
+    if shortest_path:
+        print("Shortest Path to Human Agent:", shortest_path)
+        ivr_tree.follow_shortest_path()
+    else:
+        print("No path to a human agent found.")
+
+
+# Example of Programmatically Building an IVR Tree
+def build_sample_ivr_tree():
+    tree = IVRTree()
+
+    # Level 1
+    sales_node = IVRNode(option="Press 1 for Sales", action="1")
+    claims_node = IVRNode(option="Press 2 for Claims", action="2")
+    other_node = IVRNode(option="Press 3 for Other Services", action="3")
+
+    tree.root.add_child(sales_node)
+    tree.root.add_child(claims_node)
+    tree.root.add_child(other_node)
+
+    # Level 2 for Claims
+    nid_node = IVRNode(option="Enter NID", action="NID", parent=claims_node)
+    claims_node.add_child(nid_node)
+
+    member_id_node = IVRNode(option="Enter Member ID", action="MemberID", parent=nid_node)
+    nid_node.add_child(member_id_node)
+
+    dob_node = IVRNode(option="Enter DOB", action="DOB", parent=member_id_node)
+    member_id_node.add_child(dob_node)
+
+    agent_node = IVRNode(option="Connecting to Claims Agent", action="Agent", parent=dob_node)
+    agent_node.is_terminal = True  # Mark terminal node
+    dob_node.add_child(agent_node)
+
+    # Level 2 for Sales
+    sales_agent_node = IVRNode(option="Connecting to Sales Agent", action="Agent", parent=sales_node)
+    sales_agent_node.is_terminal = True
+    sales_node.add_child(sales_agent_node)
+
+    return tree
+
+
+if __name__ == "__main__":
+    sample_tree = build_sample_ivr_tree()
+    ivr_simulation(sample_tree)

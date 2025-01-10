@@ -1,0 +1,75 @@
+from queue import Queue
+
+class IVRNode:
+    def __init__(self, option, description, is_human_agent=False):
+        self.option = option
+        self.description = description
+        self.is_human_agent = is_human_agent
+        self.children = []
+
+    def add_child(self, node):
+        self.children.append(node)
+
+# Function to build a sample IVR tree
+def build_sample_ivr_tree():
+    root = IVRNode("start", "Welcome to the IVR system")
+
+    sales = IVRNode("1", "Press 1 for Sales")
+    claims = IVRNode("2", "Press 2 for Claims")
+    others = IVRNode("3", "Press 3 for Others")
+
+    root.add_child(sales)
+    root.add_child(claims)
+    root.add_child(others)
+
+    sales.add_child(IVRNode("1.1", "Connect to Sales Agent", is_human_agent=True))
+
+    claims.add_child(IVRNode("2.1", "Enter NID"))
+    claims_2_1 = claims.children[0]
+    claims_2_1.add_child(IVRNode("2.1.1", "Enter Member ID"))
+    claims_2_1_1 = claims_2_1.children[0]
+    claims_2_1_1.add_child(IVRNode("2.1.1.1", "Enter DOB"))
+    claims_2_1_1.children[0].add_child(IVRNode("2.1.1.1.1", "Connect to Claims Agent", is_human_agent=True))
+
+    others.add_child(IVRNode("3.1", "Other Queries"))
+
+    return root
+
+# LangGraph Agent Integration
+from langgraph import LangGraph
+from vertexai.language_models import ChatModel
+
+class LangGraphAgent:
+    def __init__(self, project_id, model_name="gemini-model"):
+        self.project_id = project_id
+        self.model = ChatModel.from_pretrained(model_name)
+        self.graph = LangGraph()
+
+    def add_to_graph(self, ivr_node, parent_node_id=None):
+        node_id = ivr_node.option
+        self.graph.add_node(node_id, description=ivr_node.description)
+
+        if parent_node_id:
+            self.graph.add_edge(parent_node_id, node_id)
+
+        for child in ivr_node.children:
+            self.add_to_graph(child, node_id)
+
+    def traverse_graph(self, start_node_id="start"):
+        return self.graph.shortest_path_to_goal(start_node_id, goal_condition=lambda n: "is_human_agent" in n.metadata and n.metadata["is_human_agent"])
+
+# Function to run IVR simulation with LangGraph and LangChain agent
+def ivr_simulation_with_agent():
+    root = build_sample_ivr_tree()
+
+    agent = LangGraphAgent(project_id="your-gcp-project-id")
+    agent.add_to_graph(root)
+
+    shortest_path = agent.traverse_graph()
+    if shortest_path:
+        print(f"Shortest path to a human agent: {' -> '.join(shortest_path)}")
+    else:
+        print("No path to a human agent found.")
+
+# Run the simulation
+ivr_simulation_with_agent()

@@ -1,0 +1,72 @@
+from langchain.chat_models import ChatGoogleGenerativeAI
+from langchain.schema import HumanMessage, AIMessage
+import zlib
+import json
+
+# Initialize the ChatGoogleGenerativeAI model
+chat_model = ChatGoogleGenerativeAI(model="models/chat-bison-001", temperature=0.7)
+
+# Function to compress and decompress conversation history
+def compress_history(history):
+    json_data = json.dumps(history).encode("utf-8")
+    return zlib.compress(json_data)
+
+def decompress_history(compressed_history):
+    json_data = zlib.decompress(compressed_history).decode("utf-8")
+    return json.loads(json_data)
+
+# Function to simulate fetching user data (hardcoded for now)
+def get_user_data():
+    return {
+        "npi": "123456789",
+        "member_id": "987654321",
+        "name": "John Doe",
+        "dob": "1990-01-01"
+    }
+
+# Function to create a prompt for the agent
+def create_prompt(ivr_message, user_data, history):
+    user_data_str = f"User Data: NPI: {user_data['npi']}, Member ID: {user_data['member_id']}, Name: {user_data['name']}, DOB: {user_data['dob']}."
+    history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+    return (
+        f"{user_data_str}\nConversation History:\n{history_str}\n"
+        f"IVR says: {ivr_message}\n"
+        f"Your task: Respond to navigate the IVR to reach a human agent for insurance claims status. "
+        f"Provide the correct action based on the IVR input. Actions are numbers (e.g., '2') for keypresses or text (e.g., 'claims status') if IVR requires verbal input. "
+        f"Respond concisely with the action only."
+    )
+
+# Main IVR simulation function
+def ivr_simulation():
+    print("Starting IVR simulation...\n")
+    user_data = get_user_data()
+    conversation_history = []
+    compressed_history = compress_history(conversation_history)
+    current_state = {"reached_agent": False}
+
+    while not current_state["reached_agent"]:
+        ivr_message = input("IVR says: ")
+        conversation_history = decompress_history(compressed_history)
+
+        # Generate the prompt
+        prompt = create_prompt(ivr_message, user_data, conversation_history)
+
+        # Get response from the ChatGoogleGenerativeAI model
+        response = chat_model([HumanMessage(content=prompt)])
+        action = response.content.strip()
+
+        # Update conversation history
+        conversation_history.append({"role": "system", "content": ivr_message})
+        conversation_history.append({"role": "agent", "content": action})
+        compressed_history = compress_history(conversation_history)
+
+        # Print the action decided by the agent
+        print(f"Agent Action: {action}")
+
+        # Check if the action is to connect to a human agent
+        if action.lower() in ["connect to human", "speak to representative", "claims status"]:
+            print("Human agent reached!")
+            current_state["reached_agent"] = True
+
+# Run the IVR simulation
+ivr_simulation()

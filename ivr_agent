@@ -1,0 +1,82 @@
+from queue import Queue
+
+class IVRNode:
+    def __init__(self, option, description, is_human_agent=False):
+        self.option = option
+        self.description = description
+        self.is_human_agent = is_human_agent
+        self.children = []
+
+    def add_child(self, node):
+        self.children.append(node)
+
+# LangGraph Agent Integration
+from langgraph import LangGraph
+from vertexai.language_models import ChatModel
+
+class LangGraphAgent:
+    def __init__(self, project_id, model_name="gemini-model"):
+        self.project_id = project_id
+        self.model = ChatModel.from_pretrained(model_name)
+        self.graph = LangGraph()
+
+    def add_to_graph(self, ivr_node, parent_node_id=None):
+        node_id = ivr_node.option
+        self.graph.add_node(node_id, description=ivr_node.description)
+
+        if parent_node_id:
+            self.graph.add_edge(parent_node_id, node_id)
+
+        for child in ivr_node.children:
+            self.add_to_graph(child, node_id)
+
+    def traverse_graph(self, start_node_id="start"):
+        return self.graph.shortest_path_to_goal(start_node_id, goal_condition=lambda n: "is_human_agent" in n.metadata and n.metadata["is_human_agent"])
+
+# Function to dynamically build the IVR tree and handle real-time interactions
+def ivr_simulation_with_dynamic_tree():
+    print("Starting IVR simulation...\n")
+
+    # Root node of the IVR tree
+    root = IVRNode("start", "Welcome to the IVR system")
+    current_node = root
+
+    agent = LangGraphAgent(project_id="your-gcp-project-id")
+    agent.add_to_graph(root)
+
+    while not current_node.is_human_agent:
+        # Simulate getting a line from the IVR
+        ivr_line = input("IVR says: ")
+
+        # Use the Gemini model to interpret the IVR line
+        response = agent.model.predict(
+            prompt=f"IVR says: {ivr_line}\nWhat should the action and options be?"
+        )
+        print(f"AI response: {response}")
+
+        # Parse AI response (mock example)
+        options = response.split("\n")
+
+        # Add options as children to the current node
+        for i, option in enumerate(options):
+            option_text = option.strip()
+            is_human = "connect to human" in option_text.lower()
+            new_node = IVRNode(f"{current_node.option}.{i+1}", option_text, is_human_agent=is_human)
+            current_node.add_child(new_node)
+            agent.add_to_graph(new_node, parent_node_id=current_node.option)
+
+        # Display options and take action
+        print("Options:")
+        for i, child in enumerate(current_node.children):
+            print(f"{i+1}: {child.description}")
+
+        action = int(input("Choose an option: ")) - 1
+        if 0 <= action < len(current_node.children):
+            current_node = current_node.children[action]
+        else:
+            print("Invalid option. Try again.")
+
+    print("Human agent reached!")
+
+# Run the simulation
+ivr_simulation_with_dynamic_tree()

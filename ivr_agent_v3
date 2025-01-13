@@ -1,6 +1,7 @@
 import zlib
 import json
 from langgraph.core.graph import StateGraph, MessagesState, START, END
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 # IVR Node Class
 class IVRNode:
@@ -78,25 +79,22 @@ def ivr_simulation_with_langgraph():
     conversation_history = []
     user_data = get_user_data()
 
+    # Initialize Google Gemini Model
+    ai_model = ChatGoogleGenerativeAI(
+        api_key="your-google-genai-api-key",  # Replace with your actual API key
+    )
+
     while current_state != graph.end:
         print(f"IVR says: {current_state.message}")
         conversation_history.append({"ivr": current_state.message})
 
-        # Simulate AI decision-making
+        # Generate AI prompt
         ivr_message = current_state.message
         prompt = generate_prompt(ivr_message, user_data)
 
-        # Mock AI response (Replace this with actual model inference if needed)
-        if "claims status" in ivr_message.lower():
-            response = {
-                "action": "claims status",
-                "reason": "Claims status is the relevant option."
-            }
-        else:
-            response = {
-                "action": "",
-                "reason": "No relevant action for this message."
-            }
+        # Get AI response
+        response_text = ai_model.call(prompt).text
+        response = json.loads(response_text)  # Parse the AI's JSON response
 
         print(f"AI Response: {json.dumps(response, indent=2)}")
         conversation_history.append(response)

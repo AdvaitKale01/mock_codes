@@ -1,119 +1,78 @@
-import zlib
-import json
-from langgraph.core.graph import StateGraph, MessagesState, START, END
+from typing import Literal
+from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.graph import StateGraph, MessagesState, START, END
+from langgraph.checkpoint.memory import MemorySaver
 
-# IVR Node Class
-class IVRNode:
-    def __init__(self, option, description, is_human_agent=False):
-        self.option = option
-        self.description = description
-        self.is_human_agent = is_human_agent
-        self.children = []
+# Initialize Google Generative AI (Gemini Model)
+model = ChatGoogleGenerativeAI(
+    api_key="your-google-genai-api-key",  # Replace with your actual API key
+)
 
-    def add_child(self, node):
-        self.children.append(node)
+# Function to call the Gemini model
+def call_gemini_model(state: MessagesState):
+    messages = state["messages"]
+    response = model.invoke(messages)
+    return {"messages": [response]}
 
-# Function to Retrieve User Data (Mocked for Now)
-def get_user_data():
-    return {
-        "npi": "1234567890",
-        "member_id": "987654321",
-        "name": "John Doe",
-        "dob": "1990-01-01"
-    }
+# Function to determine the next step in the graph
+def determine_next_step(state: MessagesState) -> Literal["get_input", END]:
+    messages = state["messages"]
+    last_message = messages[-1]
+    if last_message.tool_calls:
+        return "get_input"  # Continue to the next node
+    return END  # Stop traversal when no further input is required
 
-# Function to Compress and Store Conversation History
-def compress_conversation_history(conversation):
-    compressed_data = zlib.compress(json.dumps(conversation).encode())
-    return compressed_data
+# Real-time user input function
+def get_user_input(state: MessagesState):
+    last_message = state["messages"][-1].content
+    print(f"IVR Message: {last_message}")
+    user_input = input("Your response (e.g., 'Press 2' or 'Claims Status'): ")
+    return {"messages": [HumanMessage(content=user_input)]}
 
-# Function to Generate Prompt for AI
-def generate_prompt(ivr_message, user_data):
-    return f"""
-You are an AI assistant navigating an IVR system for a user trying to reach a human agent for insurance claims status. 
-You will be given IVR messages one at a time. Based on the message, you will decide the best action to take. 
-Actions are one of the following:
-1. A number to send as input if the IVR provides options like "Press 1 for sales, Press 2 for claims".
-2. Text to say if the IVR asks for spoken input, e.g., "Say 'eligibility and benefits', 'claims status', or 'referrals'".
+# Set up the StateGraph for IVR simulation
+ivr_workflow = StateGraph(MessagesState)
 
-Your decision should always help the user reach the **claims status human agent**.
+# Define the nodes
+ivr_workflow.add_node("agent", call_gemini_model)
+ivr_workflow.add_node("get_input", get_user_input)
 
-IVR Message: {ivr_message}
-User Data: NPI: {user_data['npi']}, Member ID: {user_data['member_id']}, Name: {user_data['name']}, DOB: {user_data['dob']}
+# Define edges
+ivr_workflow.add_edge(START, "agent")
+ivr_workflow.add_conditional_edges("agent", determine_next_step)
+ivr_workflow.add_edge("get_input", "agent")
 
-Return your response in this JSON format:
-{{
-    "action": "<action to send to the IVR>",
-    "reason": "<why you chose this action>"
-}}
-"""
+# Memory for saving state
+checkpointer = MemorySaver()
 
-# IVR Graph Setup Using LangGraph
-def setup_ivr_graph():
-    graph = StateGraph()
+# Compile the graph
+ivr_app = ivr_workflow.compile(checkpointer=checkpointer)
 
-    # Add start and end states
-    start = START("Welcome to the IVR system. Please listen carefully.")
-    end = END("You have reached the human agent.")
-
-    # Define intermediate states
-    initial_state = MessagesState(
-        "What can I help you with? You can say 'eligibility and benefits', 'claims status', or 'referrals'."
-    )
-    claims_state = MessagesState("Transferring you to the claims status human agent.")
-
-    # Connect the states
-    graph.connect(start, initial_state)
-    graph.connect(initial_state, claims_state, condition="claims status")
-    graph.connect(claims_state, end)
-
-    return graph
-
-# IVR Simulation
-def ivr_simulation_with_langgraph():
+# Run the IVR simulation
+def run_ivr_simulation():
     print("Starting IVR simulation...\n")
-
-    graph = setup_ivr_graph()
-    current_state = graph.start
     conversation_history = []
-    user_data = get_user_data()
+    tree_structure = []
 
-    # Initialize Google Gemini Model
-    ai_model = ChatGoogleGenerativeAI(
-        api_key="your-google-genai-api-key",  # Replace with your actual API key
+    # Initial prompt
+    initial_prompt = "Welcome to the insurance IVR system. How can I assist you today?"
+    input_message = [HumanMessage(content=initial_prompt)]
+
+    final_state = ivr_app.invoke(
+        {"messages": input_message},
+        config={"configurable": {"thread_id": 42}},
     )
 
-    while current_state != graph.end:
-        print(f"IVR says: {current_state.message}")
-        conversation_history.append({"ivr": current_state.message})
+    # Collect and display the conversation history
+    for msg in final_state["messages"]:
+        conversation_history.append(msg.content)
+        tree_structure.append(msg.content)
 
-        # Generate AI prompt
-        ivr_message = current_state.message
-        prompt = generate_prompt(ivr_message, user_data)
+    print("\nConversation History:")
+    for step, message in enumerate(conversation_history, 1):
+        print(f"{step}: {message}")
 
-        # Get AI response
-        response_text = ai_model.call(prompt).text
-        response = json.loads(response_text)  # Parse the AI's JSON response
+    print("\nFinal Tree Structure:")
+    print(tree_structure)
 
-        print(f"AI Response: {json.dumps(response, indent=2)}")
-        conversation_history.append(response)
-
-        # Determine the next state based on the AI action
-        action = response["action"]
-        if action:
-            next_state = graph.next_state(current_state, action=action)
-        else:
-            print("No valid action identified. Exiting simulation.")
-            break
-
-        # Compress and store conversation history
-        compressed_history = compress_conversation_history(conversation_history)
-        print(f"Compressed Conversation History: {compressed_history[:50]}...")
-
-        current_state = next_state
-
-    print("Human agent reached!")
-
-# Run the simulation
-ivr_simulation_with_langgraph()
+run_ivr_simulation()

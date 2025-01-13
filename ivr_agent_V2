@@ -1,0 +1,126 @@
+from queue import Queue
+import zlib
+import json
+
+# IVR Node Class
+class IVRNode:
+    def __init__(self, option, description, is_human_agent=False):
+        self.option = option
+        self.description = description
+        self.is_human_agent = is_human_agent
+        self.children = []
+
+    def add_child(self, node):
+        self.children.append(node)
+
+# Function to Retrieve User Data (Mocked for Now)
+def get_user_data():
+    return {
+        "npi": "1234567890",
+        "member_id": "987654321",
+        "name": "John Doe",
+        "dob": "1990-01-01"
+    }
+
+# Function to Compress and Store Conversation History (For Now: Using Python, Not Redis)
+def compress_conversation_history(conversation):
+    compressed_data = zlib.compress(json.dumps(conversation).encode())
+    return compressed_data
+
+# LangGraph Agent Integration
+from langgraph import LangGraph
+from vertexai.language_models import ChatModel
+
+class LangGraphAgent:
+    def __init__(self, project_id, model_name="gemini-model"):
+        self.project_id = project_id
+        self.model = ChatModel.from_pretrained(model_name)
+        self.graph = LangGraph()
+
+    def add_to_graph(self, ivr_node, parent_node_id=None):
+        node_id = ivr_node.option
+        self.graph.add_node(node_id, description=ivr_node.description)
+
+        if parent_node_id:
+            self.graph.add_edge(parent_node_id, node_id)
+
+        for child in ivr_node.children:
+            self.add_to_graph(child, node_id)
+
+# Optimized Prompt
+def generate_prompt(ivr_message, user_data):
+    return f"""
+You are an AI assistant navigating an IVR system for a user trying to reach a human agent for insurance claims status. 
+You will be given IVR messages one at a time. Based on the message, you will decide the best action to take. 
+Actions are one of the following:
+1. A number to send as input if the IVR provides options like "Press 1 for sales, Press 2 for claims".
+2. Text to say if the IVR asks for spoken input, e.g., "Say 'eligibility and benefits', 'claims status', or 'referrals'".
+
+Your decision should always help the user reach the **claims status human agent**.
+
+IVR Message: {ivr_message}
+User Data: NPI: {user_data['npi']}, Member ID: {user_data['member_id']}, Name: {user_data['name']}, DOB: {user_data['dob']}
+
+Return your response in this JSON format:
+{{
+    "action": "<action to send to the IVR>",
+    "reason": "<why you chose this action>"
+}}
+"""
+
+# Function to Simulate IVR Interaction
+def ivr_simulation_with_dynamic_tree():
+    print("Starting IVR simulation...\n")
+
+    # Root node of the IVR tree
+    root = IVRNode("start", "Welcome to the IVR system")
+    current_node = root
+
+    agent = LangGraphAgent(project_id="your-gcp-project-id")
+    agent.add_to_graph(root)
+
+    conversation_history = []
+    user_data = get_user_data()
+
+    while not current_node.is_human_agent:
+        # Simulate getting a line from the IVR
+        ivr_line = input("IVR says: ")
+        conversation_history.append({"ivr": ivr_line})
+
+        # Use the Gemini model to interpret the IVR line
+        prompt = generate_prompt(ivr_line, user_data)
+        response = agent.model.predict(prompt=prompt)
+        print(f"AI Response: {response}")
+
+        # Parse AI response
+        try:
+            ai_response = json.loads(response)
+            action = ai_response["action"]
+            reason = ai_response["reason"]
+        except (json.JSONDecodeError, KeyError):
+            print("Invalid response format from AI. Exiting simulation.")
+            break
+
+        # Add the action to the conversation history
+        conversation_history.append({"action": action, "reason": reason})
+
+        # Add child node for the selected action
+        is_human = "human agent" in reason.lower()
+        new_node = IVRNode(f"{current_node.option}.{len(current_node.children) + 1}", reason, is_human_agent=is_human)
+        current_node.add_child(new_node)
+        agent.add_to_graph(new_node, parent_node_id=current_node.option)
+
+        # Store compressed conversation history
+        compressed_history = compress_conversation_history(conversation_history)
+        print(f"Compressed Conversation History: {compressed_history[:50]}...")
+
+        # Check if the goal is reached
+        if is_human:
+            print("Human agent reached!")
+            break
+
+        print(f"Action taken: {action}")
+        print("Waiting for the next IVR message...\n")
+
+# Run the simulation
+ivr_simulation_with_dynamic_tree()
